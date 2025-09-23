@@ -1,1 +1,1 @@
-pip install -U joblib scikit-learn
+pip install -U joblib scikit-learn numpy pandas
