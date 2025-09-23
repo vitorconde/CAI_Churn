@@ -1,38 +1,35 @@
-# Copyright 2021 Cloudera, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# model_server.py
+import pickle
+import pandas as pd
+import cml.models_v1 as models
 
-# # Models Example with scikit-learn
+# Carrega o pipeline 1x por contêiner (pré-processamento + modelo)
+with open("model.pkl", "rb") as f:
+    PIPELINE = pickle.load(f)
 
-# Import required modules:
-from joblib import load
+@models.cml_model(metrics=True)  # habilita tracking básico de input/output
+def predict(args: dict):
+    """
+    Espera JSON no formato:
+    {"records": { ...campos... }}  ou  {"records": [ {...}, {...} ] }
+    Opcional: {"threshold": 0.5}
+    Retorna: {"results": [{"churn_probability": float, "prediction": int}, ...]}
+    """
+    # Normaliza entrada: 1 ou N registros
+    data = args.get("records", {})
+    rows = data if isinstance(data, list) else [data]
+    df = pd.DataFrame(rows).fillna(0)
 
-# Load the trained model:
-model = load('model.joblib')
+    # Limite de decisão
+    threshold = float(args.get("threshold", 0.5))
 
-# Define a function that can be called to generate
-# predictions from the model:
-def pred_arr_delay(args):
-  dep_delay = args["dep_delay"]
-  prediction = model.predict([[dep_delay]]).item()
-  return {"pred_arr_delay": round(prediction)}
+    # Predição
+    proba = PIPELINE.predict_proba(df)[:, 1].tolist()
+    pred = [int(p >= threshold) for p in proba]
 
-# Example input:
-#```
-#{"dep_delay": 43}
-#```
-
-# Example output:
-#```
-#{"pred_arr_delay": 38}
-#```
+    return {
+        "results": [
+            {"churn_probability": float(p), "prediction": y}
+            for p, y in zip(proba, pred)
+        ]
+    }
